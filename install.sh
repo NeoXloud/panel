@@ -1,71 +1,81 @@
 #!/bin/bash
 
-# Warna
-green="\e[32m"
-red="\e[31m"
-endc="\e[0m"
+#=================================================
+# Auto Installer Pterodactyl Theme by NeoXloud
+# GitHub  : https://github.com/NeoXloud
+# License : MIT
+#=================================================
+# Contributors:
+# - NeoXloud (Main Dev)
+# - RezaX
+# - AiXcript
 
-echo -e "${green}=== Auto Install Pterodactyl Panel ===${endc}"
+# Color setup
+GREEN='\033[0;32m'
+NC='\033[0m'
+RED='\033[0;31m'
 
-# Update system
-apt update && apt upgrade -y
+echo -e "${GREEN}"
+cat << "EOF"
+ _   _                 ____  _                 _ 
+| \ | | ___  _ __ ___ |  _ \| | ___   ___ __ _| |
+|  \| |/ _ \| '_ ` _ \| | | | |/ _ \ / __/ _` | |
+| |\  | (_) | | | | | | |_| | | (_) | (_| (_| | |
+|_| \_|\___/|_| |_| |_|____/|_|\___/ \___\__,_|_|
 
-# Install dependencies
-apt install -y nginx mysql-server php php-cli php-mysql php-gd php-mbstring php-curl php-xml php-zip php-bcmath unzip curl tar git composer redis-server
-
-# Buat user panel
-useradd -m -d /var/www/pterodactyl -s /bin/bash pterodactyl
-cd /var/www/pterodactyl
-sudo -u pterodactyl bash << EOF
-curl -Lo panel.tar.gz https://github.com/pterodactyl/panel/releases/latest/download/panel.tar.gz
-tar -xzvf panel.tar.gz
-chmod -R 755 storage/* bootstrap/cache/
-composer install --no-dev --optimize-autoloader
-cp .env.example .env
+        Pterodactyl Theme Installer by NeoXloud
 EOF
+echo -e "${NC}"
 
-# Generate App Key dan Migrasi DB
-cd /var/www/pterodactyl
-php artisan key:generate --force
-php artisan migrate --seed --force
-php artisan p:environment:setup
-php artisan p:environment:database
-php artisan p:environment:mail
-php artisan p:user:make
+# Check if pterodactyl directory exists
+if [ ! -d "/var/www/pterodactyl" ]; then
+  echo -e "${RED}Pterodactyl not found at /var/www/pterodactyl. Exiting.${NC}"
+  exit 1
+fi
 
-# Setup Permissions
+cd /var/www/pterodactyl || exit
+
+# Ask for theme choice
+echo ""
+echo "Choose theme to install:"
+echo "1) Dark Theme"
+echo "2) Red Theme"
+echo "3) Purple Theme"
+read -rp "Enter your choice [1-3]: " theme_choice
+
+# Define download link
+case $theme_choice in
+  1)
+    theme_url="https://raw.githubusercontent.com/NeoXloud/Themes/main/Dark.zip"
+    ;;
+  2)
+    theme_url="https://raw.githubusercontent.com/NeoXloud/Themes/main/Red.zip"
+    ;;
+  3)
+    theme_url="https://raw.githubusercontent.com/NeoXloud/Themes/main/Purple.zip"
+    ;;
+  *)
+    echo -e "${RED}Invalid choice.${NC}"
+    exit 1
+    ;;
+esac
+
+# Backup existing files
+backup_dir="Backup-$(date +%F-%H%M)"
+mkdir -p "$backup_dir"
+cp -r public "$backup_dir/"
+cp -r resources "$backup_dir/"
+echo -e "${GREEN}Backup created at $backup_dir${NC}"
+
+# Download and install theme
+echo "Downloading theme..."
+curl -L "$theme_url" -o theme.zip
+unzip -o theme.zip
+cp -r public/* /var/www/pterodactyl/public/
+cp -r resources/* /var/www/pterodactyl/resources/
+rm -rf theme.zip public resources
+
+# Set permissions
 chown -R www-data:www-data /var/www/pterodactyl/*
 
-# Setup NGINX
-cat <<EOL > /etc/nginx/sites-available/pterodactyl
-server {
-    listen 80;
-    server_name yourdomain.com;
-
-    root /var/www/pterodactyl/public;
-    index index.php;
-
-    location / {
-        try_files \$uri \$uri/ /index.php;
-    }
-
-    location ~ \.php$ {
-        include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
-    }
-
-    location ~ /\.ht {
-        deny all;
-    }
-}
-EOL
-
-ln -s /etc/nginx/sites-available/pterodactyl /etc/nginx/sites-enabled/pterodactyl
-nginx -t && systemctl reload nginx
-
-# Install Theme (contoh: DarkNColor)
-echo -e "${green}=== Installing Theme: DarkNColor ===${endc}"
-cd /var/www/pterodactyl
-curl -s https://raw.githubusercontent.com/WeebDev/PteroThemes/main/install.sh | bash -s -- -t darkncool
-
-echo -e "${green}=== Done! Akses panel lo di: http://yourdomain.com ===${endc}"
+echo -e "${GREEN}Theme successfully installed!${NC}"
