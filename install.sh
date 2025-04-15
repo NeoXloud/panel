@@ -1,95 +1,71 @@
 #!/bin/bash
 
-# === Konfigurasi Awal ===
-DOMAIN="panel.domainlu.com"
-EMAIL="emaillu@domain.com"  # buat SSL Let's Encrypt
+# Warna
+green="\e[32m"
+red="\e[31m"
+endc="\e[0m"
 
-echo "Updating system..."
+echo -e "${green}=== Auto Install Pterodactyl Panel ===${endc}"
+
+# Update system
 apt update && apt upgrade -y
 
-echo "Installing dependencies..."
-apt install -y curl wget sudo unzip tar nginx gnupg mariadb-server php php-cli php-mysql php-gd php-mbstring php-xml php-bcmath php-curl php-zip php-fpm php-tokenizer php-common php-mysqlnd php-memcached php-redis php-imagick php-intl php-opcache php-readline redis composer
+# Install dependencies
+apt install -y nginx mysql-server php php-cli php-mysql php-gd php-mbstring php-curl php-xml php-zip php-bcmath unzip curl tar git composer redis-server
 
-# === Setting Database ===
-DB_ROOT_PASS=$(openssl rand -base64 12)
-DB_PANEL_PASS=$(openssl rand -base64 12)
-
-echo "Securing MariaDB..."
-mysql_secure_installation <<EOF
-
-y
-$DB_ROOT_PASS
-$DB_ROOT_PASS
-y
-y
-y
-y
-EOF
-
-mysql -u root -p$DB_ROOT_PASS -e "CREATE DATABASE panel;"
-mysql -u root -p$DB_ROOT_PASS -e "CREATE USER 'panel'@'127.0.0.1' IDENTIFIED BY '$DB_PANEL_PASS';"
-mysql -u root -p$DB_ROOT_PASS -e "GRANT ALL PRIVILEGES ON panel.* TO 'panel'@'127.0.0.1';"
-mysql -u root -p$DB_ROOT_PASS -e "FLUSH PRIVILEGES;"
-
-# === Install Panel ===
-mkdir -p /var/www/pterodactyl
+# Buat user panel
+useradd -m -d /var/www/pterodactyl -s /bin/bash pterodactyl
 cd /var/www/pterodactyl
+sudo -u pterodactyl bash << EOF
 curl -Lo panel.tar.gz https://github.com/pterodactyl/panel/releases/latest/download/panel.tar.gz
 tar -xzvf panel.tar.gz
 chmod -R 755 storage/* bootstrap/cache/
-
 composer install --no-dev --optimize-autoloader
-
 cp .env.example .env
+EOF
 
+# Generate App Key dan Migrasi DB
+cd /var/www/pterodactyl
 php artisan key:generate --force
-php artisan p:environment:setup --author="$EMAIL" --url="https://$DOMAIN" --timezone="Asia/Jakarta" --cache="redis" --session="redis" --queue="redis"
-php artisan p:environment:database --host=127.0.0.1 --port=3306 --database=panel --username=panel --password="$DB_PANEL_PASS"
-php artisan p:environment:mail --driver=smtp --host=mail.domain.com --port=587 --username=email@domain.com --password=pass --encryption=tls --from=email@domain.com
-
 php artisan migrate --seed --force
+php artisan p:environment:setup
+php artisan p:environment:database
+php artisan p:environment:mail
 php artisan p:user:make
 
+# Setup Permissions
 chown -R www-data:www-data /var/www/pterodactyl/*
 
-# === Install Nebula Theme ===
-curl -s https://pterothemes.com/api/install/nebula.sh | bash
-
-# === Konfigurasi Nginx ===
-cat <<EOF > /etc/nginx/sites-available/pterodactyl
+# Setup NGINX
+cat <<EOL > /etc/nginx/sites-available/pterodactyl
 server {
     listen 80;
-    server_name $DOMAIN;
+    server_name yourdomain.com;
 
     root /var/www/pterodactyl/public;
     index index.php;
 
     location / {
-        try_files \$uri \$uri/ /index.php?\$query_string;
+        try_files \$uri \$uri/ /index.php;
     }
 
-    location ~ \.php\$ {
+    location ~ \.php$ {
         include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/run/php/php8.1-fpm.sock; # sesuaikan versi PHP
-        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
-        include fastcgi_params;
+        fastcgi_pass unix:/var/run/php/php8.1-fpm.sock;
     }
 
     location ~ /\.ht {
         deny all;
     }
 }
-EOF
+EOL
 
-ln -s /etc/nginx/sites-available/pterodactyl /etc/nginx/sites-enabled/
+ln -s /etc/nginx/sites-available/pterodactyl /etc/nginx/sites-enabled/pterodactyl
 nginx -t && systemctl reload nginx
 
-# === Install SSL ===
-apt install -y certbot python3-certbot-nginx
-certbot --nginx -d $DOMAIN --non-interactive --agree-tos -m $EMAIL
+# Install Theme (contoh: DarkNColor)
+echo -e "${green}=== Installing Theme: DarkNColor ===${endc}"
+cd /var/www/pterodactyl
+curl -s https://raw.githubusercontent.com/WeebDev/PteroThemes/main/install.sh | bash -s -- -t darkncool
 
-# === Selesai ===
-echo "Panel sudah terinstall di https://$DOMAIN"
-echo "User & Password panel dibuat saat proses"
-echo "Database Password ROOT: $DB_ROOT_PASS"
-echo "Database Password PANEL: $DB_PANEL_PASS"
+echo -e "${green}=== Done! Akses panel lo di: http://yourdomain.com ===${endc}"
